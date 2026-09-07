@@ -67,7 +67,7 @@ backend/
   testPipeline.bxs          Builder + QA on sample-spec.json, no key
 
 generate.bxs                CLI entry (same pipeline as the API)
-serve.ps1 / serve.sh        start MiniServer on http://127.0.0.1:8080
+serve.ps1                   start MiniServer on http://127.0.0.1:8080
 miniserver.json
 generated/                  output (gitignored) - each is a standalone BxAgents project
 ```
