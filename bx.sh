@@ -2,14 +2,15 @@
 # Wrapper: load .env, then run boxlang with THIS repo's boxlang.json.
 # The raw CLI does not auto-load a project boxlang.json.
 #
-#   ./bx.sh src/smoke.bxs
-#   ./bx.sh src/agent.bxs profiler/examples/fib.py
+#   ./bx.sh generate.bxs "Create an agent that reviews my app logs"
+#   ./bx.sh backend/testPipeline.bxs
 set -e
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 load_env() {
 	[ -f "$1" ] || return 0
 	while IFS= read -r line || [ -n "$line" ]; do
+		line="${line%$'\r'}"
 		case "$line" in ''|'#'*) continue ;; esac
 		key="${line%%=*}"
 		val="${line#*=}"

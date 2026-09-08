@@ -71,7 +71,7 @@ the box itself.
 ## 2. Frontend (Amplify Hosting)
 
 1. **AWS Console → Amplify → Create app → Host web app → GitHub**, connect
-   the `LivinKevin/BlueHats` repo, branch `main`.
+   this repo, branch `main`.
 2. **Monorepo settings:** when Amplify asks for the app root, set it to
    `frontend`. It'll pick up `frontend/amplify.yml` (already in the repo)
    for the build spec — plain `npm ci && npm run build`, artifacts from

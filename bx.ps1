@@ -2,8 +2,8 @@
 # The raw CLI does not auto-load a project boxlang.json, and its own .env
 # loader is unreliable on Windows CMD - so we do both here.
 #
-#   .\bx.ps1 src\smoke.bxs
-#   .\bx.ps1 src\agent.bxs profiler\examples\fib.py
+#   .\bx.ps1 generate.bxs "Create an agent that reviews my app logs"
+#   .\bx.ps1 backend\testPipeline.bxs
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 

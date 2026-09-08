@@ -1,6 +1,7 @@
-# Start the Agent Factory API + UI on http://127.0.0.1:8080
-#   UI:      http://127.0.0.1:8080/
-#   health:  http://127.0.0.1:8080/api/health.bxm
+# Start the Agent Factory API on http://127.0.0.1:8080
+#   health:  http://127.0.0.1:8080/api/health.bxs
+#   UI:      run the React frontend separately (cd frontend && npm run dev) -
+#            its Vite dev server proxies /api to this backend.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
