@@ -1,3 +1,5 @@
+// This page is calling for buildAgent() and the getBuildProcess from the backend. 
+// What kenny made, basically. Just the progress bar. 
 import { useRef, useState } from 'react'
 import { buildAgent, getBuildProgress } from '../api'
 

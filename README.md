@@ -41,14 +41,22 @@ real API key" stub, self-verified against `bxAgents build` before anything is ke
 ## Structure
 
 ```
-web/                        served by BoxLang MiniServer
-  index.html · app.js · styles.css   AgentPromptPage · BlueprintView · BuildProgress · AgentPlayground
+web/                        served by BoxLang MiniServer - API only, no UI here anymore
   Application.bx             registers the /backend mapping
   api/
     build.bxs               POST { prompt } | { spec }  → full report
     run.bxs                 POST { slug }               → re-run QA (bxAgents build, free)
     runLive.bxs              POST { slug, message? }      → bxAgents invoke against the real provider
+    progress.bxs             GET { id }                 → build progress for the UI's progress bar
     health.bxs
+
+frontend/                  React + Vite UI (dev server proxies /api to the MiniServer)
+  src/
+    App.jsx · main.jsx
+    components/Hero.jsx      prompt form, progress bar, hosts BuildResult
+    components/BuildResult.jsx   blueprint + generated-files viewer + playground
+    hooks/useBuildForm.js     prompt → build → progress → result state machine
+    api.js                   fetch wrappers for /api/*.bxs
 
 backend/
   AgentFactory.bx           orchestrator (Architect → Builder → Coder → QA → repair → report)
@@ -95,12 +103,17 @@ cp .env.example .env          # set the key for your provider; match "provider" 
 
 ### Web (demo)
 
+Two processes: the BoxLang backend, and the React frontend that talks to it.
+
 ```bash
-./serve.ps1
+./serve.ps1                      # backend on http://127.0.0.1:8080
+cd frontend && npm run dev       # frontend on http://localhost:5173 (proxies /api to 8080)
 ```
 
-Open <http://127.0.0.1:8080/>. "spec mode" builds with no LLM (paste JSON, skips the
-agentic Coder step too); the prompt box needs a provider key.
+Open <http://localhost:5173/> — not port 8080 directly, that's just the API host and
+serves a bare directory listing. The prompt box needs a provider key, entered per-request
+in the UI. "spec mode" (build from a hand-written spec with no LLM call) is available via
+the API/CLI (see below) but isn't exposed in the web UI.
 
 ### CLI
 

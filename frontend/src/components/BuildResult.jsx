@@ -49,8 +49,7 @@ function BuildResult({ report, apiKey }) {
       {/* header row — verdict badge color/shape lives here */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-ink/60">{slug}</p>
-          <h2 className="font-serif text-3xl font-semibold text-brand-ink">
+          <h2 className="font-serif text-4xl font-bold text-brand-ink">
             {spec?.agentName ?? 'Your agent'}
           </h2>
         </div>
