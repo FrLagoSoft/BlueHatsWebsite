@@ -23,12 +23,13 @@ class accessors="true" {
 		string provider    = "",
 		string model       = "",
 		string apiKey      = "",
-		string bxAgentsBin = "bxAgents"
+		string bxAgentsBin = "bxAgents",
+		string boxlangBin  = "boxlang"
 	) {
 		variables.repoRoot  = arguments.repoRoot;
 		variables.architect = new backend.agents.ArchitectAgent( arguments.provider, arguments.model, arguments.apiKey );
 		variables.builder   = new backend.agents.BuilderAgent( arguments.repoRoot );
-		variables.coder     = new backend.agents.CoderBuilderAgent( arguments.repoRoot, arguments.provider, arguments.model, arguments.apiKey, arguments.bxAgentsBin );
+		variables.coder     = new backend.agents.CoderBuilderAgent( arguments.repoRoot, arguments.provider, arguments.model, arguments.apiKey, arguments.bxAgentsBin, arguments.boxlangBin );
 		variables.qa        = new backend.agents.QAAgent( arguments.repoRoot, arguments.bxAgentsBin );
 		variables.progress  = new backend.lib.ProgressReporter();
 		return this;

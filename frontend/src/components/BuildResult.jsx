@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { checkBuild, runLiveAgent } from '../api'
 
-function BuildResult({ report }) {
+function BuildResult({ report, apiKey }) {
   const { success, spec, slug, files, attempts } = report
   const verdict = attempts?.[attempts.length - 1]?.verdict ?? (success ? 'PASS' : 'FAIL')
   const [activeFile, setActiveFile] = useState(files?.[0]?.path ?? null)
@@ -13,12 +14,7 @@ function BuildResult({ report }) {
     setPlaygroundBusy(true)
     setPlaygroundOutput('running `bxAgents build`…')
     try {
-      const res = await fetch('/api/run.bxs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug }),
-      })
-      const v = await res.json()
+      const v = await checkBuild(slug)
       setPlaygroundOutput(
         `verdict: ${v.verdict}\ncheck: ${v.checkPass}\n\n--- bxAgents build ---\n${v.checkLog || ''}`
       )
@@ -30,15 +26,14 @@ function BuildResult({ report }) {
   }
 
   async function runLive() {
+    if (!apiKey) {
+      setPlaygroundOutput('error: no API key on hand for this session — start a new build and supply one to use the live playground')
+      return
+    }
     setPlaygroundBusy(true)
     setPlaygroundOutput('calling the real provider… (can take up to a minute)')
     try {
-      const res = await fetch('/api/runLive.bxs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug }),
-      })
-      const v = await res.json()
+      const v = await runLiveAgent({ slug, apiKey })
       setPlaygroundOutput(
         v.error ? `error: ${v.error}` : `passed: ${v.passed}\n\n--- live run ---\n${v.output || ''}`
       )

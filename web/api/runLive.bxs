@@ -22,16 +22,31 @@ if ( !directoryExists( dir ) ) {
 	abort;
 }
 
-message = trim( body.message ?: "" );
-if ( !len( message ) ) {
-	specPath = dir & "/spec.json";
-	prompts  = fileExists( specPath ) ? ( jsonDeserialize( fileRead( specPath ) ).examplePrompts ?: [] ) : [];
-	message  = prompts.len() ? prompts[ 1 ] : "Hello - introduce yourself and what you can help with.";
+apiKey = trim( body.apiKey ?: "" );
+if ( !len( apiKey ) ) {
+	bx:header statusCode=400;
+	writeOutput( jsonSerialize( { "error": "provide an API key" } ) );
+	abort;
 }
 
-validator = new backend.lib.Validator(
-	application.repoRoot,
-	server.system.environment.BXAGENTS_BIN ?: "bxAgents"
-);
-result = validator.liveRun( dir, message );
-writeOutput( jsonSerialize( { "passed": result.passed, "output": result.output, "message": message } ) );
+try {
+	specPath = dir & "/spec.json";
+	spec     = fileExists( specPath ) ? jsonDeserialize( fileRead( specPath ) ) : {};
+	provider = trim( spec.provider ?: "openrouter" );
+
+	message = trim( body.message ?: "" );
+	if ( !len( message ) ) {
+		prompts = spec.examplePrompts ?: [];
+		message = prompts.len() ? prompts[ 1 ] : "Hello - introduce yourself and what you can help with.";
+	}
+
+	validator = new backend.lib.Validator(
+		application.repoRoot,
+		server.system.environment.BXAGENTS_BIN ?: "bxAgents"
+	);
+	result = validator.liveRun( dir, message, apiKey, provider );
+	writeOutput( jsonSerialize( { "passed": result.passed, "output": result.output, "message": message } ) );
+} catch ( any e ) {
+	bx:header statusCode=500;
+	writeOutput( jsonSerialize( { "error": e.message, "detail": e.detail ?: "" } ) );
+}

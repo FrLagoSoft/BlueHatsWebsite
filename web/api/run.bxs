@@ -22,8 +22,13 @@ if ( !directoryExists( dir ) ) {
 	abort;
 }
 
-qa = new backend.agents.QAAgent(
-	application.repoRoot,
-	server.system.environment.BXAGENTS_BIN ?: "bxAgents"
-);
-writeOutput( jsonSerialize( qa.test( dir ) ) );
+try {
+	qa = new backend.agents.QAAgent(
+		application.repoRoot,
+		server.system.environment.BXAGENTS_BIN ?: "bxAgents"
+	);
+	writeOutput( jsonSerialize( qa.test( dir ) ) );
+} catch ( any e ) {
+	bx:header statusCode=500;
+	writeOutput( jsonSerialize( { "error": e.message, "detail": e.detail ?: "" } ) );
+}

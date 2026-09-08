@@ -14,7 +14,8 @@ factory  = new backend.AgentFactory(
 	provider    = body.provider ?: "",
 	model       = body.model    ?: "",
 	apiKey      = body.apiKey   ?: "",
-	bxAgentsBin = server.system.environment.BXAGENTS_BIN ?: "bxAgents"
+	bxAgentsBin = server.system.environment.BXAGENTS_BIN ?: "bxAgents",
+	boxlangBin  = server.system.environment.BOXLANG_BIN  ?: "boxlang"
 );
 
 // Progress reporting for the UI's build bar. Entirely optional.
@@ -34,7 +35,16 @@ try {
 	if ( !isNull( body.spec ) && isStruct( body.spec ) ) {
 		report = factory.buildFromSpec( body.spec );
 	} else if ( !isNull( body.prompt ) && len( trim( body.prompt ) ) ) {
-		report = factory.build( body.prompt, val( body.maxRepairs ?: 1 ) );
+		if ( !len( trim( body.apiKey ?: "" ) ) ) {
+			bx:header statusCode=400;
+			writeOutput( jsonSerialize( { "error": "provide an API key" } ) );
+			abort;
+		}
+		// Clamped server-side: each repair round is a full Builder+QA(+Coder) pass plus
+		// an LLM call, all inside this one request with no overall timeout - an
+		// uncapped client-supplied value could tie up a MiniServer thread for a long time.
+		maxRepairs = min( max( val( body.maxRepairs ?: 1 ), 0 ), 5 );
+		report = factory.build( body.prompt, maxRepairs );
 	} else {
 		bx:header statusCode=400;
 		writeOutput( jsonSerialize( { "error": "provide 'prompt' or 'spec'" } ) );

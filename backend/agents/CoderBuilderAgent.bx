@@ -28,20 +28,43 @@ class accessors="true" {
 	property name="model"       type="string";
 	property name="apiKey"      type="string";
 	property name="bxAgentsBin" type="string";
+	property name="boxlangBin"  type="string";
 	property name="progress";
+
+	// Shared across every per-tool implementation agent - see buildInstructions().
+	static {
+		SYNTAX_NOTES = "
+BoxLang syntax notes (this has already burned people - follow precisely):
+- string concatenation uses '&', not '+'
+- a newline character is char(10), NOT chr(10) (chr() does not exist)
+- a literal backslash inside a double-quoted string is written as \\\\ (backslash
+  needs escaping)
+- optional/possibly-missing function params: use ( paramName ?: '' )
+- safe numeric parsing of a possibly-missing param: val( paramName ?: '' )
+- ProcessBuilder pattern for shelling out (already proven in this codebase):
+  var pb = new java:java.lang.ProcessBuilder( [ 'someCommand', 'arg1' ] );
+  pb.redirectErrorStream( true );
+  var proc = pb.start();
+  var output = new java:java.lang.String( proc.getInputStream().readAllBytes(), 'UTF-8' );
+  proc.waitFor();
+  var lines = output.split( '\\r\\n' );
+";
+	}
 
 	function init(
 		required string repoRoot,
 		string provider    = "",
 		string model       = "",
 		string apiKey      = "",
-		string bxAgentsBin = "bxAgents"
+		string bxAgentsBin = "bxAgents",
+		string boxlangBin  = "boxlang"
 	) {
 		variables.repoRoot    = arguments.repoRoot;
 		variables.provider    = arguments.provider;
 		variables.model       = arguments.model;
 		variables.apiKey      = arguments.apiKey;
 		variables.bxAgentsBin = arguments.bxAgentsBin;
+		variables.boxlangBin  = arguments.boxlangBin;
 		variables.progress    = new backend.lib.ProgressReporter();
 		return this;
 	}
@@ -87,111 +110,95 @@ class accessors="true" {
 
 	// ---------------------------------------------------------------- internals
 
+	/**
+	 * Fires one implementation agent per tool, concurrently, instead of one agent
+	 * handling every tool in a single linear conversation. Each tool file is
+	 * independent (its own file under tools/), so there's no cross-tool context to
+	 * lose - the only cost is that each agent works from a smaller per-tool turn
+	 * budget rather than one shared pool, and progress ticks come from whichever
+	 * turn finishes next rather than a strict sequence.
+	 *
+	 * One tool's agent throwing doesn't sink the others - same best-effort contract
+	 * as before, just per-tool instead of per-build. The real safety net either way
+	 * is implement()'s backup/restore + final QA gate, not this.
+	 */
 	private function runImplementationAgent( struct spec, string projectDir, numeric maxTurns ) {
+		var toolCount    = max( arguments.spec.tools.len(), 1 );
+		var perToolTurns = max( 4, int( arguments.maxTurns / toolCount ) );
+		var totalBudget  = perToolTurns * toolCount;
+		var turnCounter  = createObject( "java", "java.util.concurrent.atomic.AtomicInteger" ).init( 0 );
+		var reporter     = variables.progress;
+		var dir          = arguments.projectDir; // hoisted - closures below can't see `arguments`
+
+		// .map()'s closure gets its own correctly-isolated `t` per call - verified
+		// empirically. A for-loop's `var` here would NOT: BoxLang doesn't rebind a
+		// for-loop local per iteration for an async closure's sake, so every worker
+		// would race and most would see the LAST tool in the list, not their own.
+		var futures = arguments.spec.tools.map( ( t ) =>
+			asyncRun( () => implementOneTool( t, dir, perToolTurns, turnCounter, totalBudget, reporter ) )
+		);
+
+		for ( var f in futures ) {
+			try {
+				f.get();
+			} catch ( any e ) {
+				// best-effort per tool - see docblock above
+			}
+		}
+	}
+
+	/** One tool's implementation agent - runs inside asyncRun(), see runImplementationAgent(). */
+	private function implementOneTool( struct tool, string projectDir, numeric maxTurns, any turnCounter, numeric totalBudget, any reporter ) {
 		var state = { lastCheckLog: "", lastVerdict: "none yet" };
 
-		var tools = [
+		var toolObjs = [
 			new backend.tools.CreateFileTool( arguments.projectDir ).toTool(),
-			new backend.tools.RunProjectTool( variables.repoRoot, arguments.projectDir, variables.bxAgentsBin ).toTool(),
+			new backend.tools.RunProjectTool( variables.repoRoot, arguments.projectDir, variables.boxlangBin ).toTool(),
 			new backend.tools.ReadErrorTool( state ).toTool(),
 			new backend.tools.CapabilityTool().toTool()
 		];
-
-		var toolTable = arguments.spec.tools.map( ( t ) =>
-			"- tools/" & t.name & ".bx (" & ( t.params ?: [] ).map( ( p ) => p.name ).toList( ", " ) & "): " & t.description
-		).toList( char( 10 ) );
-
-		var instructions = "
-You are completing a generated BxAgents project. Each tool lives in its own file
-under tools/, and every tool's function currently just returns a string starting
-with '[SIMULATED - no live data source connected yet]'. Your job is to replace as
-many of them as you honestly can with real, working code - never with more
-fabricated-looking data.
-
-Tool files to implement:
-" & toolTable & "
-
-Rules - follow exactly:
-1. If a tool's job can be done with pure computation, or by reading THIS local
-   machine's own state (files, disk space, memory, running processes, network
-   reachability, current time, hashing, random values, string/math/date logic) using
-   BoxLang built-ins or Java interop (new java:full.Class.Name(...) /
-   createObject('java', 'full.Class.Name')) - write REAL working code for it. No call
-   to a third-party internet service is allowed in this case.
-2. If a tool fundamentally needs live data from an external paid/keyed API (weather,
-   stock prices, maps, news, search, etc.) that you have no key for - do NOT invent
-   realistic-looking numbers. Leave (or rewrite) its return to be exactly this
-   pattern, filling in the service name:
-   return '[NEEDS REAL API] This tool requires a real <ServiceName> API key, which is not configured yet.';
-3. Call listCapabilities first if you want to confirm the exact tool file shape and
-   available BIFs.
-4. Use createFile to overwrite exactly ONE tool file at a time (relativePath like
-   'tools/getDiskSpace.bx'), with the file's FULL content: `class { @AITool(...)
-   function <sameName>(...) { ... } }`. Keep the function name and the @AITool
-   description the same as they already are - only change what's inside the
-   function body. NEVER touch Agent.bx or instructions.md.
-5. After every createFile edit, call runProject to check your work. If checkPass is
-   false, call readErrors, fix the syntax, and try createFile again on that same
-   tool file.
-6. Stop once runProject reports checkPass true, or once every tool file has been
-   handled (either with real code or the '[NEEDS REAL API]' message).
-
-BoxLang syntax notes (this has already burned people - follow precisely):
-- string concatenation uses '&', not '+'
-- a newline character is char(10), NOT chr(10) (chr() does not exist)
-- a literal backslash inside a double-quoted string is written as \\\\ (backslash
-  needs escaping)
-- optional/possibly-missing function params: use ( paramName ?: '' )
-- safe numeric parsing of a possibly-missing param: val( paramName ?: '' )
-- ProcessBuilder pattern for shelling out (already proven in this codebase):
-  var pb = new java:java.lang.ProcessBuilder( [ 'someCommand', 'arg1' ] );
-  pb.redirectErrorStream( true );
-  var proc = pb.start();
-  var output = new java:java.lang.String( proc.getInputStream().readAllBytes(), 'UTF-8' );
-  proc.waitFor();
-  var lines = output.split( '\\r\\n' );
-";
 
 		var modelArgs = { params: ( len( variables.model ) ? { model: variables.model } : {} ) };
 		if ( len( variables.provider ) ) modelArgs.provider = variables.provider;
 		if ( len( variables.apiKey ) )   modelArgs.apiKey   = variables.apiKey;
 
 		// ---------------------------------------------------------------------------
-		// Per-turn progress for the UI's build bar.
+		// Per-turn progress for the UI's build bar - see runImplementationAgent()'s
+		// docblock for why this runs per-tool now instead of once for the whole build.
 		//
-		// beforeLLMCall fires once per agent turn - including turns where the model only
-		// reasons and calls no tool - so it is a truer turn counter than hooking the
-		// tools would be. This is the longest phase of a build by far, so it is the one
-		// place granular ticks are worth wiring.
-		//
-		// Two non-obvious constraints:
-		//   - The locals are hoisted because a struct-literal closure cannot capture
-		//     `arguments`; `turn` is a struct so the closure can mutate it by reference.
+		// Two non-obvious constraints (same as the original single-agent version):
+		//   - Locals are hoisted because a struct-literal closure cannot capture
+		//     `arguments` - only the enclosing function's local/variables scope.
 		//   - Each hook swallows its own errors AND returns a real continue() result.
 		//     bx-ai logs a throwing hook and then RETHROWS it (AiBaseRequest
 		//     .fireMiddleware), and StructMiddlewareAdapter's hooks are typed to return
 		//     AiMiddlewareResult - so either a throw or a null return here would take
 		//     the whole build down with it. Progress must never be able to do that.
+		//
+		// turnCounter is a shared java.util.concurrent.atomic.AtomicInteger across
+		// every concurrently-running tool's agent, so the bar still climbs smoothly
+		// no matter which tool's turn actually lands next.
 		// ---------------------------------------------------------------------------
-		var maxT     = arguments.maxTurns;
-		var reporter = variables.progress;
-		var turn     = { n: 0 };
+		var name    = arguments.tool.name;
+		var counter = arguments.turnCounter;
+		var budget  = arguments.totalBudget;
+		var rep     = arguments.reporter;
 
 		var progressMiddleware = {
 			beforeLLMCall : ( context ) => {
 				try {
-					turn.n++;
-					reporter.tick( turn.n / maxT, "Coder — turn " & turn.n & " of " & maxT );
+					var n = counter.incrementAndGet();
+					rep.tick( n / budget, "Coder — " & name & " — turn " & n & " of " & budget );
 				} catch ( any ignored ) {}
 				return AiMiddlewareResult::continue();
 			},
 			beforeToolCall : ( context ) => {
 				try {
-					var toolName = arguments.context.toolName ?: "";
-					reporter.note(
-						toolName == "runProject"
-							? "Coder — re-checking with bxAgents build"
-							: "Coder — " & ( len( toolName ) ? toolName : "working" )
+					var calledTool = arguments.context.toolName ?: "";
+					rep.note(
+						calledTool == "runProject"
+							? "Coder — " & name & " — checking syntax"
+							: "Coder — " & name & " — " & ( len( calledTool ) ? calledTool : "working" )
 					);
 				} catch ( any ignored ) {}
 				return AiMiddlewareResult::continue();
@@ -199,20 +206,58 @@ BoxLang syntax notes (this has already burned people - follow precisely):
 		};
 
 		var agent = aiAgent(
-			name         = "ToolImplementer",
-			description  = "Fills in real tool bodies for a generated BxAgents project, or honestly flags what needs a real external API.",
-			instructions = instructions,
+			name         = "ToolImplementer-" & name,
+			description  = "Fills in a real tool body for one file in a generated BxAgents project, or honestly flags what needs a real external API.",
+			instructions = buildInstructions( arguments.tool ),
 			model        = aiModel( argumentCollection: modelArgs ),
-			tools        = tools,
+			tools        = toolObjs,
 			params       = { max_tokens: 4000 },
 			middleware   = progressMiddleware
 		);
 
 		agent.run(
-			"Implement the tool files now, following the rules exactly. Start with runProject if useful to confirm the current build state, then make your edits.",
+			"Implement tools/" & name & ".bx now, following the rules exactly. Start with runProject if useful to confirm the current build state, then make your edit.",
 			{},
 			{ maxInteractions: arguments.maxTurns }
 		);
+	}
+
+	private function buildInstructions( required struct tool ) {
+		var paramList = ( arguments.tool.params ?: [] ).map( ( p ) => p.name ).toList( ", " );
+
+		return "
+You are completing ONE tool file in a generated BxAgents project: tools/" & arguments.tool.name & ".bx
+(params: " & ( len( paramList ) ? paramList : "none" ) & ")
+Description: " & arguments.tool.description & "
+
+Its function currently just returns a string starting with
+'[SIMULATED - no live data source connected yet]'. Replace it with real, working
+code if you honestly can - never with more fabricated-looking data.
+
+Rules - follow exactly:
+1. If this tool's job can be done with pure computation, or by reading THIS local
+   machine's own state (files, disk space, memory, running processes, network
+   reachability, current time, hashing, random values, string/math/date logic) using
+   BoxLang built-ins or Java interop (new java:full.Class.Name(...) /
+   createObject('java', 'full.Class.Name')) - write REAL working code for it. No call
+   to a third-party internet service is allowed in this case.
+2. If it fundamentally needs live data from an external paid/keyed API (weather,
+   stock prices, maps, news, search, etc.) that you have no key for - do NOT invent
+   realistic-looking numbers. Leave (or rewrite) its return to be exactly this
+   pattern, filling in the service name:
+   return '[NEEDS REAL API] This tool requires a real <ServiceName> API key, which is not configured yet.';
+3. Call listCapabilities first if you want to confirm the exact tool file shape and
+   available BIFs.
+4. Use createFile to overwrite ONLY tools/" & arguments.tool.name & ".bx - never any
+   other file - with the file's FULL content: `class { @AITool(...) function " & arguments.tool.name & "(...) { ... } }`.
+   Keep the function name and the @AITool description the same as they already are -
+   only change what's inside the function body. NEVER touch Agent.bx, instructions.md,
+   or another tool's file.
+5. After every createFile edit, call runProject to check your work. If checkPass is
+   false, call readErrors, fix the syntax, and try createFile again.
+6. Stop once runProject reports checkPass true, or you've handled this tool (either
+   with real code or the '[NEEDS REAL API]' message).
+" & static.SYNTAX_NOTES;
 	}
 
 }

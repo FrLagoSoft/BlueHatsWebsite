@@ -1,19 +1,24 @@
 /**
  * Validator - proves a generated BxAgents project is real:
- *   check()   -> `bxAgents build` passes (discovery + validation + codegen)
- *   liveRun() -> `bxAgents invoke --message=...` completes against the real
- *                provider (needs a real API key in the environment)
+ *   check()       -> `bxAgents build` passes (discovery + validation + codegen)
+ *   checkSyntax() -> `boxlang check` on a path - parse-only, no project assembly,
+ *                    no JVM-per-turn cost of a full `bxAgents build`
+ *   liveRun()     -> `bxAgents invoke --message=...` completes against the real
+ *                    provider, using a caller-supplied API key
  *
- * Shells out via java.lang.ProcessBuilder. Used by backend/agents/QAAgent.bx.
+ * Shells out via java.lang.ProcessBuilder. Used by backend/agents/QAAgent.bx and
+ * backend/tools/RunProjectTool.bx.
  */
 class accessors="true" {
 
 	property name="repoRoot"    type="string";
 	property name="bxAgentsBin" type="string";
+	property name="boxlangBin"  type="string";
 
-	function init( required string repoRoot, string bxAgentsBin = "bxAgents" ) {
+	function init( required string repoRoot, string bxAgentsBin = "bxAgents", string boxlangBin = "boxlang" ) {
 		variables.repoRoot    = arguments.repoRoot;
 		variables.bxAgentsBin = arguments.bxAgentsBin;
+		variables.boxlangBin  = arguments.boxlangBin;
 		return this;
 	}
 
@@ -22,18 +27,84 @@ class accessors="true" {
 		return run( [ variables.bxAgentsBin, "build" ], 90, arguments.projectDir );
 	}
 
-	/** @return { passed:boolean, output:string } - a real, keyed smoke-test call */
-	function liveRun( required string projectDir, required string prompt ) {
-		return run( [ variables.bxAgentsBin, "invoke", "--message=" & arguments.prompt ], 120, arguments.projectDir );
+	/**
+	 * Parse-only syntax check - unlike check(), never assembles a project or
+	 * touches disk beyond reading. `bxAgents build`'s own ProjectValidator never
+	 * actually compiles tool .bx files, so this is the check that catches a
+	 * syntax error in the file the Coder just wrote.
+	 *
+	 * @return { checkPass:boolean, verdict:string, checkLog:string }
+	 */
+	function checkSyntax( required string path ) {
+		var result = run( [ variables.boxlangBin, "check", "--source", arguments.path, "--format", "json" ], 30, variables.repoRoot );
+		return parseSyntaxCheck( result.output );
+	}
+
+	/**
+	 * A real, keyed smoke-test call. `apiKey` is set on the CHILD process's own
+	 * environment only (never the server's) as `<PROVIDER>_API_KEY` - bx-ai
+	 * auto-detects that var name per provider - so it's used for exactly this
+	 * one invocation and never inherited from or falls back to the server's
+	 * own .env.
+	 *
+	 * @return { passed:boolean, output:string }
+	 */
+	function liveRun( required string projectDir, required string prompt, required string apiKey, string provider = "openrouter" ) {
+		var env = { "#uCase( arguments.provider )#_API_KEY" : arguments.apiKey };
+		return run( [ variables.bxAgentsBin, "invoke", "--message=" & arguments.prompt ], 120, arguments.projectDir, env );
 	}
 
 	// ---------------------------------------------------------------- internals
 
-	private function run( array argv, numeric timeout, string cwd = variables.repoRoot ) {
+	/**
+	 * `boxlang check --format json` output is a JSON array, but some local installs
+	 * print scheduler/startup noise to stdout ahead of it - lines shaped like
+	 * "[tagName] ==> message". Those brackets defeat a naive first-`[`/last-`]`
+	 * extraction (same trick ArchitectAgent.coerce() uses for `{`/`}`), so strip
+	 * that noise shape first, then apply the same first/last extraction to what's left.
+	 */
+	private function parseSyntaxCheck( required string raw ) {
+		var cleaned = arguments.raw.reReplace( "\[\w+\][^\r\n]*", "", "all" ).trim();
+		var start   = cleaned.find( "[" );
+		var stop    = cleaned.reverse().find( "]" );
+		if ( !start || !stop ) {
+			return { "checkPass": false, "verdict": "FAIL", "checkLog": arguments.raw.right( 1500 ) };
+		}
+
+		try {
+			var jsonText = cleaned.mid( start, cleaned.len() - start - stop + 2 );
+			var results  = jsonDeserialize( jsonText );
+			var lines    = [];
+			var allValid = true;
+
+			for ( var r in results ) {
+				if ( !( r.valid ?: true ) ) {
+					allValid = false;
+					for ( var issue in ( r.issues ?: [] ) ) {
+						lines.append( ( r.file ?: "?" ) & ":" & ( issue.line ?: 0 ) & ":" & ( issue.column ?: 0 )
+							& " - " & ( issue.message ?: "" ) );
+					}
+				}
+			}
+
+			return {
+				"checkPass" : allValid,
+				"verdict"   : allValid ? "PASS" : "FAIL",
+				"checkLog"  : lines.toList( char( 10 ) ).right( 1500 )
+			};
+		} catch ( any e ) {
+			return { "checkPass": false, "verdict": "FAIL", "checkLog": arguments.raw.right( 1500 ) };
+		}
+	}
+
+	private function run( array argv, numeric timeout, string cwd = variables.repoRoot, struct env = {} ) {
 		try {
 			var pb = new java:java.lang.ProcessBuilder( argv.map( ( x ) => toString( x ) ) );
 			pb.directory( new java:java.io.File( arguments.cwd ) );
 			pb.redirectErrorStream( true );
+			for ( var key in arguments.env ) {
+				pb.environment().put( key, toString( arguments.env[ key ] ) );
+			}
 
 			var proc   = pb.start();
 			var output = new java:java.lang.String( proc.getInputStream().readAllBytes(), "UTF-8" );

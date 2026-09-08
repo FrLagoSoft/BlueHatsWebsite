@@ -1,12 +1,6 @@
-import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import BuildResult from './BuildResult'
-
-function newBuildId() {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
+import { useBuildForm } from '../hooks/useBuildForm'
 
 const circles = [
   { top: '10%', right: '78%', size: 180, opacity: 0.55, delay: 0 },
@@ -15,74 +9,19 @@ const circles = [
 ]
 
 function Hero() {
-  const [prompt, setPrompt] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [keyFieldHidden, setKeyFieldHidden] = useState(false)
-  const [status, setStatus] = useState('idle') // idle | building | done | error
-  const [error, setError] = useState('')
-  const [report, setReport] = useState(null)
-  const [progressPercent, setProgressPercent] = useState(0)
-  const [progressLabel, setProgressLabel] = useState('')
-  const pollRef = useRef(null)
-  const buildIdRef = useRef(null)
-
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }
-
-  function startPolling(buildId) {
-    stopPolling()
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/progress.bxs?id=${buildId}`)
-        const data = await res.json()
-        if (buildIdRef.current !== buildId) return
-        setProgressPercent(data.percent ?? 0)
-        setProgressLabel(data.label ?? '')
-      } catch {
-        // progress is decoration - a missed poll just waits for the next tick
-      }
-    }, 1000)
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (!prompt.trim() || status === 'building') return
-
-    const buildId = newBuildId()
-    buildIdRef.current = buildId
-
-    setStatus('building')
-    setError('')
-    setReport(null)
-    setKeyFieldHidden(true)
-    setProgressPercent(0)
-    setProgressLabel('')
-    startPolling(buildId)
-
-    try {
-      const res = await fetch('/api/build.bxs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, apiKey, buildId }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `Request failed (${res.status})`)
-      }
-      setReport(data)
-      setStatus('done')
-      setProgressPercent(100)
-    } catch (err) {
-      setError(err.message)
-      setStatus('error')
-    } finally {
-      stopPolling()
-    }
-  }
+  const {
+    prompt,
+    setPrompt,
+    apiKey,
+    setApiKey,
+    keyFieldHidden,
+    status,
+    error,
+    report,
+    progressPercent,
+    progressLabel,
+    handleSubmit,
+  } = useBuildForm()
 
   return (
     <section className="relative flex min-h-screen flex-col items-center overflow-hidden bg-brand px-6 pb-16 pt-10 sm:px-12 md:px-20">
@@ -215,7 +154,7 @@ function Hero() {
             className="mt-4 w-full max-w-5xl"
           >
             {/* blueprint + generated-files card — see BuildResult.jsx */}
-            <BuildResult report={report} />
+            <BuildResult report={report} apiKey={apiKey} />
           </motion.div>
         )}
       </AnimatePresence>
