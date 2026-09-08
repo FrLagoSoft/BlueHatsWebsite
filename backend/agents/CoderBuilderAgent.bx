@@ -118,6 +118,14 @@ BoxLang syntax notes (this has already burned people - follow precisely):
 	 * budget rather than one shared pool, and progress ticks come from whichever
 	 * turn finishes next rather than a strict sequence.
 	 *
+	 * GL - Yeah, this does exactly what you think it does. The only tradeoff is that 
+	 * it's utilizing the same API key for multiple concurrent requests, which may or may not be a problem.
+	 * 
+	 * Also the progress bar is now per-tool, so it may jump around a bit more than before. Actually not true, 
+	 * the progress bar is virtually disfunctional. I kind of destroyed it. Since this all fires off at once, 
+	 * and when the whole process is finished it'll be done, the progress bar is basically useless for this. 
+	 * 
+	 * 
 	 * One tool's agent throwing doesn't sink the others - same best-effort contract
 	 * as before, just per-tool instead of per-build. The real safety net either way
 	 * is implement()'s backup/restore + final QA gate, not this.
@@ -163,18 +171,7 @@ BoxLang syntax notes (this has already burned people - follow precisely):
 		if ( len( variables.apiKey ) )   modelArgs.apiKey   = variables.apiKey;
 
 		// ---------------------------------------------------------------------------
-		// Per-turn progress for the UI's build bar - see runImplementationAgent()'s
-		// docblock for why this runs per-tool now instead of once for the whole build.
-		//
-		// Two non-obvious constraints (same as the original single-agent version):
-		//   - Locals are hoisted because a struct-literal closure cannot capture
-		//     `arguments` - only the enclosing function's local/variables scope.
-		//   - Each hook swallows its own errors AND returns a real continue() result.
-		//     bx-ai logs a throwing hook and then RETHROWS it (AiBaseRequest
-		//     .fireMiddleware), and StructMiddlewareAdapter's hooks are typed to return
-		//     AiMiddlewareResult - so either a throw or a null return here would take
-		//     the whole build down with it. Progress must never be able to do that.
-		//
+
 		// turnCounter is a shared java.util.concurrent.atomic.AtomicInteger across
 		// every concurrently-running tool's agent, so the bar still climbs smoothly
 		// no matter which tool's turn actually lands next.
