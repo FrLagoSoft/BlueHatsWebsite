@@ -36,7 +36,17 @@ install-bx-module bx-agents
 
 echo "==> Verifying with the repo's own no-key smoke test"
 cd "$REPO_ROOT"
-boxlang --bx-config boxlang.json backend/testPipeline.bxs
+# testPipeline.bxs reports a failed build in its output and still exits 0, so
+# `set -e` alone would let a broken install print "Done" below. Assert on what
+# it actually printed instead.
+smoke_output="$( boxlang --bx-config boxlang.json backend/testPipeline.bxs 2>&1 )"
+echo "$smoke_output"
+if ! grep -qE '^success +: +true' <<< "$smoke_output"; then
+	echo
+	echo "!!! Smoke test FAILED - the pipeline could not build the sample spec." >&2
+	echo "!!! Fix this before starting the service; the output above is the reason." >&2
+	exit 1
+fi
 
 echo
 echo "==> Done. Next steps:"

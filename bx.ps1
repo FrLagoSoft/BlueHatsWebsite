@@ -23,6 +23,18 @@ function Import-EnvFile($path) {
 Import-EnvFile (Join-Path $HOME ".box.env")
 Import-EnvFile (Join-Path $root ".env")
 
-$boxlang = if (Get-Command boxlang -ErrorAction SilentlyContinue) { "boxlang" } else { "C:\boxlang\bin\boxlang.bat" }
-& $boxlang --bx-config "$root\boxlang.json" @args
+# Scripts run through this wrapper (generate.bxs, backend/testPipeline.bxs) shell out
+# to boxlang/bxAgents via ProcessBuilder, which - unlike a shell - cannot resolve a
+# bare command name on Windows; it needs the actual resolved file, extension included.
+# Resolve both here so those scripts can read server.system.environment.* instead of
+# hardcoding a platform-specific path (same approach as serve.ps1).
+$boxlangCmd = Get-Command boxlang -ErrorAction SilentlyContinue
+$env:BOXLANG_BIN = if ($boxlangCmd) { $boxlangCmd.Source } else { "C:\boxlang\bin\boxlang.bat" }
+
+# bxAgents' shim isn't on PATH by default - it lives under the BoxLang home, not the
+# bin dir PATH points at - so fall back to that location explicitly.
+$bxAgentsCmd = Get-Command bxAgents -ErrorAction SilentlyContinue
+$env:BXAGENTS_BIN = if ($bxAgentsCmd) { $bxAgentsCmd.Source } else { "C:\boxlang\home\bin\bxAgents.bat" }
+
+& $env:BOXLANG_BIN --bx-config "$root\boxlang.json" @args
 exit $LASTEXITCODE

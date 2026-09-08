@@ -7,7 +7,11 @@
 root = getDirectoryFromPath( getCurrentTemplatePath() ).reReplace( "[\\/]backend[\\/]$", "" );
 spec = jsonDeserialize( fileRead( root & "/backend/sample-spec.json" ) );
 
-factory = new backend.AgentFactory( repoRoot = root, bxAgentsBin = "C:\boxlang\home\bin\bxAgents.bat" );
+factory = new backend.AgentFactory(
+	repoRoot    = root,
+	bxAgentsBin = server.system.environment.BXAGENTS_BIN ?: "bxAgents",
+	boxlangBin  = server.system.environment.BOXLANG_BIN  ?: "boxlang"
+);
 report  = factory.buildFromSpec( spec );
 
 println( "success    : " & report.success );

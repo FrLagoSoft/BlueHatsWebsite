@@ -18,7 +18,8 @@ factory = new backend.AgentFactory(
 	repoRoot    = root,
 	provider    = provider,
 	model       = model,
-	bxAgentsBin = "C:\boxlang\home\bin\bxAgents.bat"
+	bxAgentsBin = server.system.environment.BXAGENTS_BIN ?: "bxAgents",
+	boxlangBin  = server.system.environment.BOXLANG_BIN  ?: "boxlang"
 );
 
 if ( len( specFile ) ) {

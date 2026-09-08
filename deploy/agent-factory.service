@@ -8,13 +8,21 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/BlueHats
 Environment="PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/home/ubuntu/BlueHats/serve.sh
+# ExecStart needs an absolute path to the binary - confirm yours with
+# `which boxlang-miniserver` after deploy/setup.sh has run (the BoxLang
+# installer puts its shims in ~/.local/bin).
+ExecStart=/home/ubuntu/.local/bin/boxlang-miniserver /home/ubuntu/BlueHats/miniserver.json -c /home/ubuntu/BlueHats/boxlang.json
 Restart=on-failure
 RestartSec=5
 
 # No secrets in the environment here on purpose - every visitor supplies
 # their own AI provider key per request (see BuildResult's apiKey field).
-# If .env doesn't exist, serve.sh's load_env just no-ops.
+# A .env is loaded by MiniServer itself (miniserver.json's "envFile"), and
+# simply doesn't apply when the file is absent - nothing here needs it.
+#
+# The backend shells out to `bxAgents` / `boxlang` via ProcessBuilder, which
+# resolves bare names from PATH on Linux - hence the PATH= line above rather
+# than the BXAGENTS_BIN/BOXLANG_BIN overrides the Windows wrappers need.
 
 [Install]
 WantedBy=multi-user.target

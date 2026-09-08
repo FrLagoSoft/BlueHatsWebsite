@@ -96,6 +96,10 @@ the box itself.
   `ArchitectAgent`/`CoderBuilderAgent` via `bx-ai`'s native `apiKey`
   option) — verified to fail cleanly with no key and succeed with one,
   no server-side `.env` fallback.
-- **Real progress, not fake.** The loading bar is driven by
-  `GET /api/progress.bxs`, polled from the frontend — actual pipeline
-  phase/turn data, not a decorative animation.
+- **Progress is real backend data, not a fake animation.** The loading bar
+  is driven by `GET /api/progress.bxs`, polled from the frontend, and
+  reports actual pipeline phase data. Caveat: since the Coder step was
+  parallelized (one agent per tool, all firing at once) its turn-level
+  ticks no longer track a meaningful sequence — the bar is honest about
+  phases, but coarse through the longest one. See the note in
+  `backend/agents/CoderBuilderAgent.bx`.

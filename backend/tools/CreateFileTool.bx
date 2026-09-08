@@ -1,7 +1,7 @@
 /**
  * CreateFileTool - writes a file into a generated project folder.
- * For the stretch "agentic Builder" mode where an aiAgent assembles the project
- * itself instead of the deterministic Renderer.
+ * Handed to the per-tool implementation agents in CoderBuilderAgent, which use it
+ * to overwrite a single tools/<toolName>.bx that the Renderer already wrote.
  */
 class accessors="true" {
 

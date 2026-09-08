@@ -22,4 +22,11 @@ load_env() {
 load_env "$HOME/.box.env"
 load_env "$root/.env"
 
-exec "${BOXLANG_BIN:-boxlang}" --bx-config "$root/boxlang.json" "$@"
+# Exported (not just expanded) because the scripts run through this wrapper shell out
+# to these binaries via ProcessBuilder and read them from the environment - see the
+# matching block in bx.ps1. A bare name is fine here: ProcessBuilder resolves it from
+# PATH on Linux/macOS, unlike Windows' .bat shims.
+export BOXLANG_BIN="${BOXLANG_BIN:-boxlang}"
+export BXAGENTS_BIN="${BXAGENTS_BIN:-bxAgents}"
+
+exec "$BOXLANG_BIN" --bx-config "$root/boxlang.json" "$@"

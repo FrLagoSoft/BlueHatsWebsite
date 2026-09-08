@@ -4,6 +4,13 @@
  * This is the ONLY place an LLM writes anything, and it only does structured
  * extraction (not code), so it is the low-risk use of the model.
  *
+ * GL - Basically this is the architect of the agent being built. It takes 
+ * the problem statement and makes it into a spec, which goes into builder agent. 
+ * This is essentially the best thing that we have. We can't really change this 
+ * without changing the whole entire scope of the project. 
+ * 
+ * If we ever want to make subagents, this is where to start the pipeline.
+ * 
  *   "Create an agent that reviews my app logs and flags unusual behavior"
  *        -> { agentName, role, instructions, memoryType, tools[], examplePrompts[] }
  */

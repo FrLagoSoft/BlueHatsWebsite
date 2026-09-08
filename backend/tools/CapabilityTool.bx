@@ -1,6 +1,6 @@
 /**
- * CapabilityTool - lets an agent (the stretch "agentic Builder") ask what BxAgents
- * / bx-ai building blocks exist, so it doesn't invent BIFs or the wrong tool shape.
+ * CapabilityTool - lets CoderBuilderAgent's per-tool agents ask what BxAgents /
+ * bx-ai building blocks exist, so they don't invent BIFs or the wrong tool shape.
  */
 class {
 

@@ -32,9 +32,10 @@ class accessors="true" {
 	 * Phase bands, as { start, end } percentages.
 	 *
 	 * The weights are wall-clock estimates, not equal slices: `coder` owns 35-95 on
-	 * the LLM path because it is up to 16 LLM turns, most of which shell out to a
-	 * full `bxAgents build` - easily the majority of the wait. On the spec path there
-	 * is no LLM at all, so `qa` (one bxAgents build) is the long pole instead.
+	 * the LLM path because it is many LLM turns (a per-tool budget, times the number
+	 * of tools), each also shelling out to `boxlang check` - easily the majority of
+	 * the wait. On the spec path there is no LLM at all, so `qa` (one full
+	 * `bxAgents build`) is the long pole instead.
 	 */
 	static {
 		BANDS = {

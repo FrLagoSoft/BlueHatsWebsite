@@ -6,8 +6,10 @@
  * hallucinate. The templates are the thing that was tested once and now always
  * produces valid BoxLang.
  *
- * (Stretch: an "agentic" mode where an aiAgent with the backend/tools/* file
- *  tools fills in real tool bodies. Not on the default path.)
+ * What this writes are honestly-labeled stubs. Filling them in with real code is
+ * a separate, later step: backend/agents/CoderBuilderAgent.bx, which IS on the
+ * default LLM path (see AgentFactory.runLoop) and runs against this output once
+ * QA has passed on it.
  */
 class accessors="true" {
 
