@@ -11,9 +11,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "==> Installing BoxLang (runtime + MiniServer + install-bx-module)"
 /bin/bash -c "$(curl -fsSL https://install.boxlang.io)" -- --with-jre --yes
 
-# Installer PATH entries land in ~/.local/bin - make them available to this
-# script and to the systemd service (see agent-factory.service's Environment=).
-export PATH="$HOME/.local/bin:$PATH"
+# The installer writes both of these to ~/.bashrc, which this script never
+# sources - so export them here or the very next command fails with "Helper
+# scripts not found". ~/.local/bin holds the installer's shims (boxlang,
+# install-bx-module); ~/.boxlang/bin holds module executables (bxAgents).
+export PATH="$HOME/.boxlang/bin:$HOME/.local/bin:$PATH"
+export BOXLANG_INSTALL_HOME="${BOXLANG_INSTALL_HOME:-$HOME/.local/boxlang}"
 
 echo "==> Installing bx-ai"
 install-bx-module bx-ai
