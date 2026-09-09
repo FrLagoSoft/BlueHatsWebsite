@@ -11,8 +11,13 @@ WorkingDirectory=/home/ubuntu/BlueHats
 # in ~/.local/bin but module executables (bxAgents) in ~/.boxlang/bin, and the
 # backend resolves `bxAgents` from PATH. Omitting the latter starts the service
 # fine and then fails every build at the coder step.
-Environment="PATH=/home/ubuntu/.boxlang/bin:/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/opt/java/openjdk-21-jre/bin:/home/ubuntu/.boxlang/bin:/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="BOXLANG_INSTALL_HOME=/home/ubuntu/.local/boxlang"
+# The `--with-jre` installer drops a JRE in /opt/java and exports JAVA_HOME
+# from ~/.bashrc, which systemd never reads. Without this the miniserver
+# launcher exits immediately with "JAVA_HOME is not set and no 'java' command
+# could be found in your PATH" - confirm yours with `echo $JAVA_HOME`.
+Environment="JAVA_HOME=/opt/java/openjdk-21-jre"
 # ExecStart needs an absolute path to the binary - confirm yours with
 # `which boxlang-miniserver` after deploy/setup.sh has run (the BoxLang
 # installer puts its shims in ~/.local/bin).
