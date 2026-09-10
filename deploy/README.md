@@ -58,8 +58,11 @@ the box itself.
   Nothing deletes those automatically. Add a cron job:
   ```bash
   # crontab -e
-  0 * * * * find /home/ubuntu/BlueHats/generated -maxdepth 1 -mtime +1 -exec rm -rf {} +
+  0 * * * * find /home/ubuntu/BlueHats/generated -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} +
   ```
+  `-mindepth 1` is load-bearing: without it `find` also matches `generated`
+  itself, and the moment that directory's own mtime passes 24h the hourly
+  job deletes the whole tree rather than the stale projects inside it.
 - **Rate limiting.** `nginx.conf.example` already caps requests per IP
   (6/min, burst 3) — tune `limit_req_zone`'s `rate=` if that's too tight
   or too loose for how this gets used.

@@ -50,6 +50,18 @@ class accessors="true" {
 	 * @return { passed:boolean, output:string }
 	 */
 	function liveRun( required string projectDir, required string prompt, required string apiKey, string provider = "openrouter" ) {
+		// `invoke` only runs a BUILT project - it reads .build/manifest.json and, when
+		// that is missing, fails with "No build found at <projectDir>/Acme/.build"
+		// (Acme being its placeholder app name, not anything we wrote). AgentFactory
+		// does run `bxAgents build` via QA, but the Coder step rewrites tool files
+		// afterwards, so the artifact is stale or absent by the time anyone clicks Run.
+		// Rebuild first, and report a build failure as itself rather than letting it
+		// resurface as a confusing invoke error.
+		var built = check( arguments.projectDir );
+		if ( !built.passed ) {
+			return { "passed": false, "output": "bxAgents build failed before invoke:" & char( 10 ) & built.output };
+		}
+
 		var env = { "#uCase( arguments.provider )#_API_KEY" : arguments.apiKey };
 		return run( [ variables.bxAgentsBin, "invoke", "--message=" & arguments.prompt ], 120, arguments.projectDir, env );
 	}
