@@ -62,8 +62,16 @@ class accessors="true" {
 			return { "passed": false, "output": "bxAgents build failed before invoke:" & char( 10 ) & built.output };
 		}
 
+		// `invoke` takes the project root as a required first positional - see the
+		// module's own Invoke.bx: "@options { projectRoot (required, absolute path),
+		// message (required, ...) }". Omitting it appeared to work for a one-word
+		// message, but bxAgents splits the --message value on whitespace and drops
+		// the leftover token into the projectRoot slot: "Checkout API p99 latency..."
+		// resolved to <projectDir>/API/.build and died with "No build found". Passing
+		// the root explicitly fills that slot, so the stray token is ignored and the
+		// message survives intact.
 		var env = { "#uCase( arguments.provider )#_API_KEY" : arguments.apiKey };
-		return run( [ variables.bxAgentsBin, "invoke", "--message=" & arguments.prompt ], 120, arguments.projectDir, env );
+		return run( [ variables.bxAgentsBin, "invoke", arguments.projectDir, "--message=" & arguments.prompt ], 120, arguments.projectDir, env );
 	}
 
 	// ---------------------------------------------------------------- internals
