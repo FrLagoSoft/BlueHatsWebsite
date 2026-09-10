@@ -5,11 +5,30 @@
 # symlink into sites-enabled, then `sudo certbot --nginx -d api.yourdomain.com`
 # to fill in the TLS block automatically.
 
+# Builds are the expensive path - each one spawns real bxAgents subprocesses -
+# so they stay tightly capped.
 limit_req_zone $binary_remote_addr zone=agentfactory:10m rate=6r/m;
+
+# Progress reads are cheap, and the frontend polls them once a second for the
+# whole length of a build (see useBuildForm.js's startPolling). Putting them in
+# the build limiter's bucket 503s all but the first few polls and leaves the bar
+# frozen at 0% - the poll's catch block treats progress as decoration, so the
+# failure is completely silent.
+limit_req_zone $binary_remote_addr zone=agentprogress:10m rate=120r/m;
 
 server {
 	listen 80;
 	server_name api.yourdomain.com;
+
+	location = /api/progress.bxs {
+		limit_req zone=agentprogress burst=20 nodelay;
+
+		proxy_pass         http://127.0.0.1:8080;
+		proxy_set_header    Host $host;
+		proxy_set_header    X-Real-IP $remote_addr;
+		proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header    X-Forwarded-Proto $scheme;
+	}
 
 	location / {
 		limit_req zone=agentfactory burst=3 nodelay;
