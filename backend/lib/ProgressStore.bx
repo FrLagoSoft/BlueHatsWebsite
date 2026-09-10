@@ -31,6 +31,30 @@ class {
 	}
 
 	/**
+	 * Park a finished build's report next to its progress record, under a derived
+	 * key so ProgressReporter's snapshot discipline above is untouched.
+	 *
+	 * The build no longer runs inside the request that started it - a blocking
+	 * multi-minute POST cannot survive a CDN edge timeout - so the report has to
+	 * outlive that request and reach the client through the polling endpoint.
+	 * Written by the background thread in web/api/build.bxs, read by
+	 * web/api/progress.bxs. sweep() expires these on the same TTL as any other
+	 * record, since put() stamps them the same way.
+	 */
+	function putResult( required any map, required string id, required struct report ) {
+		return put( arguments.map, resultKey( arguments.id ), { "report": arguments.report } );
+	}
+
+	/** @return { report: {...} } for this id, or an empty struct if not finished. */
+	struct function getResult( required any map, required string id ) {
+		return get( arguments.map, resultKey( arguments.id ) );
+	}
+
+	private string function resultKey( required string id ) {
+		return "result:" & arguments.id;
+	}
+
+	/**
 	 * Drop records that are finished with, so the map can't grow without bound.
 	 * Called once per build (from build.bxs), never from the polling endpoint.
 	 *

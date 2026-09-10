@@ -1,3 +1,18 @@
+/**
+ * POST /api/build.bxs
+ *
+ * Starts a build and returns immediately with 202 + { buildId }. The pipeline
+ * itself runs on a background thread; the client collects progress AND the
+ * finished report from GET /api/progress.bxs.
+ *
+ * This used to run the whole pipeline inline and return the report as the
+ * response body. That works over a direct connection (and still does in Vite
+ * dev), but the deployed frontend reaches this through Amplify's CloudFront
+ * edge, which closes the connection after a fixed origin timeout and hands the
+ * browser a 504 with an empty body. Fast builds squeaked under it and slow ones
+ * didn't, which is why it looked intermittent. Nothing the backend can do about
+ * that limit - so the request stops being long-running instead.
+ */
 bx:header name="Content-Type" value="application/json";
 
 try {
@@ -8,52 +23,96 @@ try {
 	abort;
 }
 
-repoRoot = application.repoRoot;
-factory  = new backend.AgentFactory(
-	repoRoot    = repoRoot,
-	provider    = body.provider ?: "",
-	model       = body.model    ?: "",
-	apiKey      = body.apiKey   ?: "",
-	bxAgentsBin = server.system.environment.BXAGENTS_BIN ?: "bxAgents",
-	boxlangBin  = server.system.environment.BOXLANG_BIN  ?: "boxlang"
-);
+// Validate synchronously: a bad request should still fail fast and loudly here,
+// not turn into a background thread that reports an error a second later.
+hasSpec   = ( !isNull( body.spec ) && isStruct( body.spec ) );
+hasPrompt = ( !isNull( body.prompt ) && len( trim( body.prompt ) ) );
 
-// Progress reporting for the UI's build bar. Entirely optional.
-// if len(buildId) === 0, it just leaves the factory with its default reporter and the build runs exactly as before.
-// The client polls what this writes via GET /api/progress.bxs.
-buildId  = ( body.buildId ?: "" ).reReplace( "[^A-Za-z0-9_-]", "", "all" ).left( 64 );
-reporter = new backend.lib.ProgressReporter();
+if ( !hasSpec && !hasPrompt ) {
+	bx:header statusCode=400;
+	writeOutput( jsonSerialize( { "error": "provide 'prompt' or 'spec'" } ) );
+	abort;
+}
+if ( !hasSpec && !len( trim( body.apiKey ?: "" ) ) ) {
+	bx:header statusCode=400;
+	writeOutput( jsonSerialize( { "error": "provide an API key" } ) );
+	abort;
+}
+
+buildId = ( body.buildId ?: "" ).reReplace( "[^A-Za-z0-9_-]", "", "all" ).left( 64 );
+if ( !len( buildId ) ) {
+	buildId = createUUID();
+}
+
+job = {
+	"buildId"     : buildId,
+	"hasSpec"     : hasSpec,
+	"spec"        : hasSpec ? body.spec : {},
+	"prompt"      : trim( body.prompt ?: "" ),
+	"apiKey"      : body.apiKey   ?: "",
+	"provider"    : body.provider ?: "",
+	"model"       : body.model    ?: "",
+	// Clamped server-side: each repair round is a full Builder+QA(+Coder) pass
+	// plus an LLM call, so an uncapped client-supplied value could tie up a
+	// worker thread for a very long time.
+	"maxRepairs"  : min( max( val( body.maxRepairs ?: 1 ), 0 ), 5 ),
+	"repoRoot"    : application.repoRoot,
+	"bxAgentsBin" : server.system.environment.BXAGENTS_BIN ?: "bxAgents",
+	"boxlangBin"  : server.system.environment.BOXLANG_BIN  ?: "boxlang"
+};
+
+store = new backend.lib.ProgressStore();
+
+// Seed a record before returning, so the client's first poll sees "running"
+// rather than "unknown" and can't mistake a just-started build for a dead one.
+// Written by hand rather than through ProgressReporter: the reporter picks its
+// layout when the factory starts, and this is a moment earlier than that.
 try {
-	if ( len( buildId ) ) {
-		new backend.lib.ProgressStore().sweep( application.progress );
-		reporter = new backend.lib.ProgressReporter( application.progress, buildId );
-		factory.withProgress( reporter );
-	}
+	store.sweep( application.progress );
+	store.put( application.progress, buildId, {
+		"buildId" : buildId,
+		"phase"   : "queued",
+		"label"   : "Starting the build",
+		"percent" : 0,
+		"ceiling" : 5,
+		"state"   : "running",
+		"attempt" : 0
+	} );
 } catch ( any ignored ) {}
 
-try {
-	if ( !isNull( body.spec ) && isStruct( body.spec ) ) {
-		report = factory.buildFromSpec( body.spec );
-	} else if ( !isNull( body.prompt ) && len( trim( body.prompt ) ) ) {
-		if ( !len( trim( body.apiKey ?: "" ) ) ) {
-			bx:header statusCode=400;
-			writeOutput( jsonSerialize( { "error": "provide an API key" } ) );
-			abort;
-		}
-		// Clamped server-side: each repair round is a full Builder+QA(+Coder) pass plus
-		// an LLM call, all inside this one request with no overall timeout - an
-		// uncapped client-supplied value could tie up a MiniServer thread for a long time.
-		maxRepairs = min( max( val( body.maxRepairs ?: 1 ), 0 ), 5 );
-		report = factory.build( body.prompt, maxRepairs );
-	} else {
-		bx:header statusCode=400;
-		writeOutput( jsonSerialize( { "error": "provide 'prompt' or 'spec'" } ) );
-		abort;
+bx:thread name="agentFactoryBuild-#buildId#" job=job progressMap=application.progress {
+	var j        = attributes.job;
+	var helper   = new backend.lib.ProgressStore();
+	var reporter = new backend.lib.ProgressReporter( attributes.progressMap, j.buildId );
+
+	try {
+		var factory = new backend.AgentFactory(
+			repoRoot    = j.repoRoot,
+			provider    = j.provider,
+			model       = j.model,
+			apiKey      = j.apiKey,
+			bxAgentsBin = j.bxAgentsBin,
+			boxlangBin  = j.boxlangBin
+		);
+		factory.withProgress( reporter );
+
+		var report = j.hasSpec
+			? factory.buildFromSpec( j.spec )
+			: factory.build( j.prompt, j.maxRepairs );
+
+		// Store the report BEFORE marking the record done - the poller reads the
+		// state to decide whether to look for a result, so the reverse order
+		// leaves a tick where a client sees "done" with nothing to collect.
+		helper.putResult( attributes.progressMap, j.buildId, report );
+		reporter.finish( report.success ?: false );
+	} catch ( any e ) {
+		helper.putResult( attributes.progressMap, j.buildId, {
+			"error"  : e.message,
+			"detail" : e.detail ?: ""
+		} );
+		reporter.fail( e.message );
 	}
-	reporter.finish( report.success ?: false );
-	writeOutput( jsonSerialize( report ) );
-} catch ( any e ) {
-	reporter.fail( e.message );
-	bx:header statusCode=500;
-	writeOutput( jsonSerialize( { "error": e.message, "detail": e.detail ?: "" } ) );
 }
+
+bx:header statusCode=202;
+writeOutput( jsonSerialize( { "buildId": buildId, "started": true } ) );

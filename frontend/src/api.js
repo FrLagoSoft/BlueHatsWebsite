@@ -34,14 +34,23 @@ async function postJSON(url, body) {
   }
 }
 
-/** Full build pipeline. Throws on failure - the caller drives status/error UI from that. */
-export async function buildAgent({ prompt, apiKey, buildId }) {
+/**
+ * Kicks off a build and returns as soon as the server has accepted it (202).
+ * The pipeline runs on the server's own thread - the report is collected from
+ * getBuildProgress(), not from this call, because a multi-minute request dies
+ * at Amplify's CloudFront edge with a 504. Throws if the build couldn't start.
+ */
+export async function startBuild({ prompt, apiKey, buildId }) {
   const { ok, status, data } = await postJSON('/api/build.bxs', { prompt, apiKey, buildId })
   if (!ok || data.error) throw new Error(data.error || `Request failed (${status})`)
   return data
 }
 
-/** Polled while a build is running. Never throws - a missed poll just waits for the next tick. */
+/**
+ * Polled while a build is running. Drives the progress bar, and carries the
+ * finished report once `state` is 'done' (or the failure once it is 'error').
+ * Never throws - a missed poll just waits for the next tick.
+ */
 export async function getBuildProgress(buildId) {
   const res = await fetch(`/api/progress.bxs?id=${buildId}`)
   return res.json()

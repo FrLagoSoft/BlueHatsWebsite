@@ -22,9 +22,21 @@ out = { "state": "unknown", "percent": 0 };
 
 try {
 	if ( len( id ) && structKeyExists( application, "progress" ) ) {
-		record = new backend.lib.ProgressStore().get( application.progress, id );
+		store  = new backend.lib.ProgressStore();
+		record = store.get( application.progress, id );
 		if ( !record.isEmpty() ) {
 			out = record;
+
+			// The build runs on a background thread now (see build.bxs), so this
+			// endpoint - not the POST that started it - is how the finished report
+			// gets back to the client. Only look once the record says there is
+			// something to collect.
+			if ( ( out.state ?: "" ) == "done" || ( out.state ?: "" ) == "error" ) {
+				result = store.getResult( application.progress, id );
+				if ( !result.isEmpty() ) {
+					out[ "report" ] = result.report ?: {};
+				}
+			}
 		}
 	}
 } catch ( any ignored ) {}
