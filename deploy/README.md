@@ -73,16 +73,25 @@ the box itself.
 1. **AWS Console → Amplify → Create app → Host web app → GitHub**, connect
    this repo, branch `main`.
 2. **Monorepo settings:** when Amplify asks for the app root, set it to
-   `frontend`. It'll pick up `frontend/amplify.yml` (already in the repo)
-   for the build spec — plain `npm ci && npm run build`, artifacts from
-   `dist/`.
-3. **Rewrites and redirects** (App settings → Rewrites and redirects) —
-   this is what makes `/api/build.bxs` etc. from the browser transparently
-   reach the EC2 backend without any CORS setup, same idea as the Vite dev
-   proxy this app already uses locally:
+   `frontend`. That puts Amplify in monorepo mode, which reads
+   `amplify.yml` **at the repo root** — the one with the `applications:`
+   key, whose `appRoot` has to match what you typed in the console. A
+   single-app spec (or one under `frontend/`) fails the build one second
+   in with `CustomerError: Monorepo spec provided without "applications"
+   key`, before npm ever runs.
+3. **Rewrites and redirects** (**Hosting** → Rewrites and redirects — it
+   is not under App settings) — this is what makes `/api/build.bxs` etc.
+   from the browser transparently reach the EC2 backend without any CORS
+   setup, same idea as the Vite dev proxy this app already uses locally:
    | Source address | Target address | Type |
    |---|---|---|
    | `/api/<*>` | `https://api.yourdomain.com/api/<*>` | 200 (Rewrite) |
+
+   The target **must be HTTPS** — Amplify rejects a plain-`http://` custom
+   rule outright ("HTTP URLs cannot be used in custom rules"), and won't
+   take a bare IP either, since certbot can only issue for a hostname. So
+   step 1's backend TLS is a hard prerequisite for this step, not the
+   optional polish it looks like.
 4. **Deploy.** Amplify builds and gives you a `*.amplifyapp.com` URL (or
    attach a custom domain under Domain management).
 5. **Verify end to end:** open the Amplify URL, type a prompt, paste a key

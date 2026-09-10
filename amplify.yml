@@ -1,0 +1,24 @@
+# Amplify build spec. This lives at the repo root, not under frontend/, and uses
+# the `applications` shape: setting an app root in the console puts Amplify in
+# monorepo mode, and a monorepo build fails at clone time with
+# "CustomerError: Monorepo spec provided without applications key" if it finds a
+# single-app spec instead. appRoot below must match the app root set in the
+# console (frontend).
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
