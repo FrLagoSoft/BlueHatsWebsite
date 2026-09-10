@@ -39,6 +39,10 @@ BoxLang syntax notes (this has already burned people - follow precisely):
 - a newline character is char(10), NOT chr(10) (chr() does not exist)
 - a literal backslash inside a double-quoted string is written as \\\\ (backslash
   needs escaping)
+- a literal double quote inside a double-quoted string is written by DOUBLING it
+  ("""" is a string containing one quote). C/Java/JS-style \\"" is NOT valid and
+  will not parse - this has already broken a generated agent, in a struct literal
+  mapping morse code to punctuation
 - optional/possibly-missing function params: use ( paramName ?: '' )
 - safe numeric parsing of a possibly-missing param: val( paramName ?: '' )
 - ProcessBuilder pattern for shelling out (already proven in this codebase):
@@ -97,6 +101,25 @@ BoxLang syntax notes (this has already burned people - follow precisely):
 
 		var qa      = new backend.agents.QAAgent( variables.repoRoot, variables.bxAgentsBin );
 		var verdict = qa.test( arguments.projectDir );
+
+		// `bxAgents build` validates project structure but never compiles the tool
+		// .bx files (see RunProjectTool's docblock), so a syntax error the coder
+		// just wrote passes QA with a PASS verdict and only surfaces much later,
+		// when `invoke` loads the tools and the whole agent fails to compile - by
+		// which point the honest stubs it replaced are long gone. Parse them here
+		// and treat a parse failure exactly like a QA failure, so the backup below
+		// actually gets restored.
+		if ( verdict.checkPass ) {
+			var syntax = new backend.lib.Validator( variables.repoRoot, variables.bxAgentsBin, variables.boxlangBin )
+				.checkSyntax( toolsDir );
+			if ( !syntax.checkPass ) {
+				verdict = {
+					"checkPass" : false,
+					"verdict"   : "FAIL",
+					"checkLog"  : "Generated tool code does not parse:" & char( 10 ) & syntax.checkLog
+				};
+			}
+		}
 
 		if ( !verdict.checkPass ) {
 			for ( var f in backup ) {
