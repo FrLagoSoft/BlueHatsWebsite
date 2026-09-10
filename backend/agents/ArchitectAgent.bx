@@ -96,7 +96,7 @@ class accessors="true" {
 
 	/** Accept a struct, or a string that contains a JSON object. */
 	private function coerce( any raw ) {
-		if ( isStruct( arguments.raw ) ) return arguments.raw;
+		if ( isStruct( arguments.raw ) ) return assertSpec( arguments.raw );
 
 		var text = toString( arguments.raw ).trim();
         text = text.reReplace( "^```[a-zA-Z]*", "", "one" )
@@ -108,7 +108,45 @@ class accessors="true" {
 		if ( start && stop ) {
 			text = text.mid( start, text.len() - start - stop + 2 );
 		}
-		return jsonDeserialize( text );
+		return assertSpec( jsonDeserialize( text ) );
+	}
+
+	/**
+	 * The model does not always answer with the schema it was handed. Asking for
+	 * more tools than the schema allows tends to come back as a bare tool object,
+	 * and an over-long answer can be truncated mid-JSON so the first-{/last-}
+	 * slice above lands on a nested object rather than the whole spec.
+	 *
+	 * Either way this used to be returned unchecked, and the pipeline died several
+	 * layers down in CoderBuilderAgent with "The key [tools] was not found in the
+	 * struct" - which names neither the cause nor the fix. Fail here instead,
+	 * while we still know what came back.
+	 */
+	private struct function assertSpec( any candidate ) {
+		if ( !isStruct( arguments.candidate ) ) {
+			throw(
+				type    = "ArchitectAgent.BadSpec",
+				message = "The architect did not return an agent spec.",
+				detail  = "Expected a JSON object, got " & ( isArray( arguments.candidate ) ? "an array" : "a plain value" ) & "."
+			);
+		}
+
+		var missing = [];
+		if ( !len( trim( arguments.candidate.agentName ?: "" ) ) ) missing.append( "agentName" );
+		if ( isNull( arguments.candidate.tools ) || !isArray( arguments.candidate.tools ) ) missing.append( "tools" );
+
+		if ( missing.len() ) {
+			throw(
+				type    = "ArchitectAgent.BadSpec",
+				message = "The architect returned JSON that isn't an agent spec - missing " & missing.toList( ", " ) & ".",
+				detail  = "Keys returned: [" & structKeyList( arguments.candidate ) & "]. "
+					& "Most often this means the request asked for more than the schema allows "
+					& "(2-4 tools), so the model answered with a single tool object instead of a "
+					& "whole spec. Try a narrower request, or one that groups the work into fewer tools."
+			);
+		}
+
+		return arguments.candidate;
 	}
 
 }
